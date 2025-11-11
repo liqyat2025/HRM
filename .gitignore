@@ -5,7 +5,7 @@
 # cache
 /cache/
 # data
-/data/
+/data/arc-aug-1000
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
