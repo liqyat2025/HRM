@@ -19,16 +19,17 @@ def _sample_batch(rng: np.random.Generator, group_order: np.ndarray, puzzle_indi
 
     while (start_index < group_order.size) and (current_size < global_batch_size):
         # Pick a group and a puzzle from that group
+        #这里应该就是选择组的意思（也就是选择哪一类题目）
         group_id = group_order[start_index]
         puzzle_id = rng.integers(group_indices[group_id], group_indices[group_id + 1])
         start_index += 1
 
         # Get range of the puzzle
         puzzle_start = puzzle_indices[puzzle_id]
-        puzzle_size = int(puzzle_indices[puzzle_id + 1] - puzzle_start)
+        puzzle_size = int(puzzle_indices[puzzle_id + 1] - puzzle_start)#这里是在计算在训练集中每个puzzle给出了多少种示例（输入输出对）
 
-        append_size = min(puzzle_size, global_batch_size - current_size)
 
+        append_size = min(puzzle_size, global_batch_size - current_size) 
         # Put into batch
         batch_puzzle_indices.append(np.full(append_size, puzzle_id, dtype=np.int32))
         batch.append(puzzle_start + np.random.choice(puzzle_size, append_size, replace=False))
@@ -186,7 +187,7 @@ class PuzzleDataset(IterableDataset):
 
                 yield set_name, batch, global_effective_batch_size
                 
-    def __iter__(self):
+    def __iter__(self): #继承IterableDataset，必须实现的一个方法
         worker_info = get_worker_info()
         assert worker_info is None or worker_info.num_workers == 1, "Multithreaded data loading is not currently supported."
         

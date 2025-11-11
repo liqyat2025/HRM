@@ -16,11 +16,22 @@ import coolname
 import hydra
 import pydantic
 from omegaconf import DictConfig
-from adam_atan2 import AdamATan2
+# from adam_atan2 import AdamATan2
+from torch.optim import AdamW
 
 from puzzle_dataset import PuzzleDataset, PuzzleDatasetConfig, PuzzleDatasetMetadata
 from utils.functions import load_model_class, get_model_source_path
 from models.sparse_embedding import CastedSparseEmbeddingSignSGD_Distributed
+
+
+# 设置全局配置
+from torch._dynamo import config
+
+config.suppress_errors = True
+
+#===为了调试加上的====
+from models.losses import ACTLossHead
+os.environ["DISABLE_COMPILE"] = "1"  # 禁用编译，便于调试
 
 
 class LossConfig(pydantic.BaseModel):
@@ -30,7 +41,7 @@ class LossConfig(pydantic.BaseModel):
 
 
 class ArchConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='allow')
+    model_config = pydantic.ConfigDict(extra='allow') #允许模型接受未在类中明确定义的额外字段
 
     name: str
     loss: LossConfig
@@ -118,14 +129,15 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
     )
 
     # Instantiate model with loss head
-    model_cls = load_model_class(config.arch.name)
+    # 动态加载模块并引入模型和损失函数
+    model_cls = load_model_class(config.arch.name) 
     loss_head_cls = load_model_class(config.arch.loss.name)
 
     with torch.device("cuda"):
-        model: nn.Module = model_cls(model_cfg)
+        model: nn.Module = model_cls(model_cfg) #创建模型实例
         model = loss_head_cls(model, **config.arch.loss.__pydantic_extra__)  # type: ignore
         if "DISABLE_COMPILE" not in os.environ:
-            model = torch.compile(model, dynamic=False)  # type: ignore
+            model = torch.compile(model, dynamic=False,backend='aot_eager')  # type: ignore
 
         # Broadcast parameters from rank 0
         if world_size > 1:
@@ -143,13 +155,14 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
 
             world_size=world_size
         ),
-        AdamATan2(
+        AdamW(
             model.parameters(),
 
             lr=0,  # Needs to be set by scheduler
             weight_decay=config.weight_decay,
             betas=(config.beta1, config.beta2)
         )
+ 
     ]
     optimizer_lrs = [
         config.puzzle_emb_lr,
@@ -208,6 +221,15 @@ def compute_lr(base_lr: float, config: PretrainConfig, train_state: TrainState):
 
 def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, global_batch_size: int, rank: int, world_size: int):
     train_state.step += 1
+
+
+ # === 调试代码开始 ===
+    if train_state.step % 100 == 0:  # 每100步打印一次
+        print(f"\n=== Step {train_state.step} ===")
+        if train_state.carry is not None:
+            print(f"Carry状态: steps={train_state.carry.steps}, halted={train_state.carry.halted}")
+ # === 调试代码结束 ===
+
     if train_state.step > train_state.total_steps:  # At most train_total_steps
         return
 
@@ -219,8 +241,19 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
         with torch.device("cuda"):
             train_state.carry = train_state.model.initial_carry(batch)  # type: ignore
 
+    print(f"Calling model: {type(train_state.model)}")
+    print(f"Model is ACTLossHead: {isinstance(train_state.model, ACTLossHead)}")
+
+
     # Forward
     train_state.carry, loss, metrics, _, _ = train_state.model(carry=train_state.carry, batch=batch, return_keys=[])
+
+    # === 调试代码：观察损失 ===
+    if train_state.step % 100 == 0:
+        print(f"当前损失: {loss.item():.4f}")
+        if 'q_halt_logits' in metrics:
+            print(f"Q值 - 停止: {metrics['q_halt_logits']:.3f}, 继续: {metrics['q_continue_logits']:.3f}")
+    # === 调试结束 ===
 
     ((1 / global_batch_size) * loss).backward()
 
@@ -263,7 +296,7 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
             return reduced_metrics
 
 
-def evaluate(config: PretrainConfig, train_state: TrainState, eval_loader: torch.utils.data.DataLoader, eval_metadata: PuzzleDatasetMetadata, rank: int, world_size: int):
+def evaluate(config: PretrainConfig, train_state: TrainState, eval_loader:  DataLoader, eval_metadata: PuzzleDatasetMetadata, rank: int, world_size: int):
     with torch.inference_mode():
         set_ids = {k: idx for idx, k in enumerate(eval_metadata.sets)}
         
@@ -413,7 +446,7 @@ def launch(hydra_config: DictConfig):
     # Progress bar and logger
     progress_bar = None
     if RANK == 0:
-        progress_bar = tqdm.tqdm(total=train_state.total_steps)
+        progress_bar = tqdm.tqdm(total=train_state.total_steps) #进度条设置
 
         wandb.init(project=config.project_name, name=config.run_name, config=config.model_dump(), settings=wandb.Settings(_disable_stats=True))  # type: ignore
         wandb.log({"num_params": sum(x.numel() for x in train_state.model.parameters())}, step=0)
@@ -424,7 +457,7 @@ def launch(hydra_config: DictConfig):
         print (f"[Rank {RANK}, World Size {WORLD_SIZE}]: Epoch {_iter_id * train_epochs_per_iter}")
 
         ############ Train Iter
-        train_state.model.train()
+        train_state.model.train() #将模式设置为训练模式，所有的子模块也将更改为训练模式，训练模式下，有的层的行为会发生改变
         for set_name, batch, global_batch_size in train_loader:
             metrics = train_batch(config, train_state, batch, global_batch_size, rank=RANK, world_size=WORLD_SIZE)
 

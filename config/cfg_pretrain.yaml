@@ -8,13 +8,14 @@ hydra:
   output_subdir: null
 
 # Data path
-data_path: data/arc-aug-1000
+data_path: data/arc-aug-1000(Test)
 
 # Hyperparams - Training
-global_batch_size: 768
+# global_batch_size: 768
+global_batch_size: 8
 
-epochs: 100000
-eval_interval: 10000
+epochs: 2
+eval_interval: 1
 checkpoint_every_eval: True
 
 lr: 1e-4

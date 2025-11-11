@@ -18,15 +18,18 @@ cli = ArgParser()
 
 class DataProcessConfig(BaseModel):
     # ARC-1
-    dataset_dirs: List[str] = ["dataset/raw-data/ARC-AGI/data", "dataset/raw-data/ConceptARC/corpus"]
-    output_dir: str = "data/arc-aug-1000"
+    # dataset_dirs: List[str] = ["dataset/raw-data/ARC-AGI/data", "dataset/raw-data/ConceptARC/corpus"] #源代码
+    # output_dir: str = "data/arc-aug-1000" #源代码
+    dataset_dirs: List[str] = ["dataset/raw-data/ARC-AGI/data"]#仅用于调试查看数据处理流程和训练过程
+    output_dir: str = "data/arc-aug-1000(Test)" #仅用于调试查看数据处理流程和训练过程
     
     # ARC-2
     # dataset_dirs: List[str] = ["dataset/raw-data/ARC-AGI-2/data"]
     # output_dir: str = "data/arc-2-aug-1000"
 
     seed: int = 42
-    num_aug: int = 1000
+    # num_aug: int = 1000 #源代码
+    num_aug: int = 10 #仅用于调试查看数据处理流程和训练过程
     
     
 ARCMaxGridSize = 30
@@ -40,6 +43,8 @@ class ARCPuzzle:
     examples: List[Tuple[np.ndarray, np.ndarray]]
 
     
+
+    #判断网格的尺寸大小和网格里面的数字范围是否正确
 def arc_grid_to_np(grid: List[List[int]]):
     arr = np.array(grid)
 
@@ -53,7 +58,7 @@ def arc_grid_to_np(grid: List[List[int]]):
 
 def np_grid_to_seq_translational_augment(inp: np.ndarray, out: np.ndarray, do_translation: bool):
     # PAD: 0, <eos>: 1, digits: 2 ... 11
-    # Compute random top-left pad
+    # Compute random top-left pad 平移的数组增强，将小网络放到大网络，将网络的大小都统一为30*30
     if do_translation:
         pad_r = np.random.randint(0, ARCMaxGridSize - max(inp.shape[0], out.shape[0]) + 1)
         pad_c = np.random.randint(0, ARCMaxGridSize - max(inp.shape[1], out.shape[1]) + 1)
@@ -81,7 +86,7 @@ def np_grid_to_seq_translational_augment(inp: np.ndarray, out: np.ndarray, do_tr
 def puzzle_hash(puzzle: dict):
     # Hash the puzzle for checking equivalence
     def _grid_hash(grid: np.ndarray):
-        buffer = [x.to_bytes(1) for x in grid.shape]
+        buffer = [x.to_bytes(1,byteorder='big') for x in grid.shape]
         buffer.append(grid.tobytes())
         
         return hashlib.sha256(b"".join(buffer)).hexdigest()
@@ -100,7 +105,7 @@ def convert_single_arc_puzzle(results: dict, default_name: str, puzzle: dict, au
     name = puzzle.pop("name", default_name)
     
     # Convert
-    dests = set(dest_mapping.values())
+    dests = set(dest_mapping.values()) #如果是evaluate中的数据dests就既有train又有test，如果是train中的数据则只有train
     converted = {dest: ARCPuzzle(name, []) for dest in dests}
     for example_type, examples in puzzle.items():
         dest = dest_mapping[example_type]
@@ -157,10 +162,25 @@ def load_puzzles_arcagi(results: dict, dataset_path: str, config: DataProcessCon
         if subdir.is_dir():
             # Load all puzzles in this directory
             puzzles = []
-            for filename in glob(os.path.join(subdir.path, "*.json")):
-                with open(filename, "r") as f:
-                    puzzles.append((Path(filename).stem, json.load(f)))
-                    
+            #以下注释块为源代码
+            # for filename in glob(os.path.join(subdir.path, "*.json")):
+            #     with open(filename, "r") as f:
+            #         puzzles.append((Path(filename).stem, json.load(f)))
+
+            # 仅用于调试查看数据处理流程和训练过程
+            filename=glob(os.path.join(subdir.path, "*.json"))[0] #仅仅使用一个样本参与整个流程
+            with open(filename,"r") as f:
+                # 使用 f-string 安全打印
+                puzzle_data = json.load(f)  # 先加载到变量
+                print(f"=== 调试信息 ===")
+                print(f"文件路径: {filename}")
+                print(f"文件stem: {Path(filename).stem}")
+                print(f"JSON数据类型: {type(puzzle_data)}")
+                print(f"JSON键值: {list(puzzle_data.keys())}")
+                  
+                puzzles.append((Path(filename).stem, puzzle_data))
+            #调试部分更改结束
+                
             # Shuffle puzzles
             np.random.shuffle(puzzles)
             
@@ -264,7 +284,8 @@ def convert_dataset(config: DataProcessConfig):
             ignore_label_id=0,
             
             blank_identifier_id=0,
-            num_puzzle_identifiers=num_identifiers,
+            #增强之后的quzzle数目
+            num_puzzle_identifiers=num_identifiers,\
             
             total_groups=total_groups,
             mean_puzzle_examples=total_examples / total_puzzles,

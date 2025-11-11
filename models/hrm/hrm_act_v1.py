@@ -114,7 +114,7 @@ class HierarchicalReasoningModel_ACTV1_Inner(nn.Module):
         self.q_head       = CastedLinear(self.config.hidden_size, 2, bias=True)
 
         self.puzzle_emb_len = -(self.config.puzzle_emb_ndim // -self.config.hidden_size)  # ceil div
-        if self.config.puzzle_emb_ndim > 0:
+        if self.config.puzzle_emb_ndim > 0:                                                                                 
             # Zero init puzzle embeddings
             self.puzzle_emb = CastedSparseEmbedding(self.config.num_puzzle_identifiers, self.config.puzzle_emb_ndim,
                                                     batch_size=self.config.batch_size, init_std=0, cast_to=self.forward_dtype)
@@ -219,7 +219,7 @@ class HierarchicalReasoningModel_ACTV1(nn.Module):
     def __init__(self, config_dict: dict):
         super().__init__()
         self.config = HierarchicalReasoningModel_ACTV1Config(**config_dict)
-        self.inner = HierarchicalReasoningModel_ACTV1_Inner(self.config)
+        self.inner = HierarchicalReasoningModel_ACTV1_Inner(self.config)  #一个真正执行推理的内核模块
 
     @property
     def puzzle_emb(self):

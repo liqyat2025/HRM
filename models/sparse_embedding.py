@@ -3,7 +3,13 @@ from typing import Union
 import torch
 from torch import nn
 import torch.distributed as dist
-from torch.optim.optimizer import Optimizer, ParamsT
+# from torch.optim.optimizer import Optimizer, ParamsT
+from torch.optim.optimizer import Optimizer
+from torch import Tensor
+from typing import Iterable
+
+# ParamsT = 一个包含 torch.Tensor 的可迭代对象
+ParamsT = Iterable[Tensor]
 
 from models.common import trunc_normal_init_
 
